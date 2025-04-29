@@ -232,3 +232,8 @@ class ProbingEvaluator:
         average_eval_loss = losses_t.mean().item()
 
         return average_eval_loss
+
+    def get_representation(self, obs):
+        """获取观察的表示"""
+        with torch.no_grad():
+            return self.model.get_representation(obs)

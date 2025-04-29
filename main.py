@@ -3,6 +3,8 @@ from evaluator import ProbingEvaluator
 import torch
 from models import MockModel
 import glob
+from JEPA import JEPA
+import os
 
 
 def get_device():
@@ -45,9 +47,20 @@ def load_data(device):
 
 
 def load_model():
-    """Load or initialize the model."""
-    # TODO: Replace MockModel with your trained model
-    model = MockModel()
+    """加载训练好的模型"""
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # 使用正确的隐藏维度初始化模型
+    model = JEPA(hidden_dim=256, action_dim=2)  # 改为 256
+    model = model.to(device)
+    
+    try:
+        state_dict = torch.load('experiments/exp1/model_weights.pth', map_location=device)
+        model.load_state_dict(state_dict)
+        model.eval()
+    except Exception as e:
+        raise Exception(f"加载模型时出错: {str(e)}")
+    
     return model
 
 
