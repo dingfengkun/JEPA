@@ -51,8 +51,8 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=1, help='训练轮数')
-    parser.add_argument('--batch_size', type=int, default=128, help='批量大小')
-    parser.add_argument('--lr', type=float, default=0.0001, help='学习率')
+    parser.add_argument('--batch_size', type=int, default=512, help='批量大小')
+    parser.add_argument('--lr', type=float, default=0.002, help='学习率')
     parser.add_argument('--exp_name', type=str, default='', help='实验名称')
     args = parser.parse_args()
     
@@ -78,7 +78,8 @@ def main():
             f"--exp_dir {exp_dir} "
             f"--epochs {args.epochs} "
             f"--batch_size {args.batch_size} "
-            f"--lr {args.lr}"
+            f"--lr {args.lr} "
+            f"--min_lr 1e-4"
         )
         log_file.write(f"Training command: {train_command}\n\n")
         
@@ -124,7 +125,7 @@ def main():
             summary_file.write(f"Evaluation Command: {eval_command}\n\n")
             
             if os.path.exists(metrics_path):
-                with open(metrics_path, 'r') as f:
+                with open(metrics_path, 'r', encoding='utf-8') as f:
                     metrics = f.read()
                     summary_file.write("Evaluation Results:\n")
                     summary_file.write(metrics)

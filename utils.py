@@ -150,4 +150,10 @@ def load_config(save_dir):
     if not config_path.exists():
         return None
     with open(config_path, 'r') as f:
-        return json.load(f) 
+        return json.load(f)
+
+def save_checkpoint(checkpoint, exp_dir):
+    """保存检查点到指定目录"""
+    checkpoint_path = os.path.join(exp_dir, f'checkpoint_epoch_{checkpoint["epoch"]}.pth')
+    torch.save(checkpoint, checkpoint_path)
+    print(f"Checkpoint saved to {checkpoint_path}") 

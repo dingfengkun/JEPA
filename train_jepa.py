@@ -6,31 +6,45 @@ import argparse
 import os
 import platform
 from tqdm import tqdm  # 需要先 pip install tqdm
+import json
+from datetime import datetime
+import torch.nn as nn
 
 from JEPA import JEPA
 from losses import VICRegLoss, L2Loss
 from utils import (TrajectoryDataset, setup_device, load_data, 
                   CheckpointManager, save_config, load_config,
-                  TrajectoryTransform)
+                  TrajectoryTransform, save_checkpoint)
 
-def train_epoch(model, dataloader, criterion, optimizer, device, epoch):
+def save_model(model, exp_dir):
+    """保存模型权重到指定路径"""
+    # 保存到实验目录
+    exp_path = os.path.join(exp_dir, 'model_weights.pth')
+    torch.save(model.state_dict(), exp_path)
+    
+    # 同时保存到当前目录
+    current_path = 'model_weights.pth'
+    torch.save(model.state_dict(), current_path)
+    
+    print(f"Model saved to: {exp_path}")
+    print(f"Model also saved to: {current_path}")
+
+def train_epoch(model, dataloader, criterion, mse_criterion, optimizer, device, epoch):
     """Train one epoch"""
     model.train()
     total_loss = 0
     num_batches = len(dataloader)
-    log_interval = 100  # 每100个batch输出一次
     
-    # 使用tqdm但减少更新频率
+    # 使用tqdm，每个batch都更新
     pbar = tqdm(enumerate(dataloader), total=num_batches, 
-                desc=f'Epoch {epoch+1}', ncols=100,
-                mininterval=10.0,  # 最小更新间隔10秒
-                miniters=log_interval)  # 最小更新batch数
+                desc=f'Epoch {epoch+1}', ncols=100)
     
     running_metrics = {
         'loss': 0,
         'inv-loss': 0,
         'var-loss': 0,
-        'cov-loss': 0
+        'cov-loss': 0,
+        'mse-loss': 0
     }
     
     for batch_idx, (states, actions) in pbar:
@@ -47,16 +61,26 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch):
             next_obs = states[:, t + 1]
             
             pred_state, target_state = model(obs, act, next_obs, teacher_forcing=True)
-            metrics = criterion(pred_state, target_state)
-            loss = metrics['loss']
+            
+            # 计算VICReg损失
+            vicreg_metrics = criterion(pred_state, target_state)
+            vicreg_loss = vicreg_metrics['loss']
+            
+            # 计算MSE损失
+            mse_loss = mse_criterion(pred_state, target_state)
+            
+            # 混合损失
+            loss = vicreg_loss + mse_loss
             
             batch_total_loss += loss
             
             if batch_metrics is None:
-                batch_metrics = {k: v.item() for k, v in metrics.items()}
+                batch_metrics = {k: v.item() for k, v in vicreg_metrics.items()}
+                batch_metrics['mse-loss'] = mse_loss.item()
             else:
-                for k, v in metrics.items():
+                for k, v in vicreg_metrics.items():
                     batch_metrics[k] += v.item()
+                batch_metrics['mse-loss'] += mse_loss.item()
 
         # 计算平均损失
         batch_total_loss = batch_total_loss / (traj_len - 1)
@@ -73,21 +97,14 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch):
         for k, v in batch_metrics.items():
             running_metrics[k] += v
         
-        # 每log_interval个batch更新一次进度条
-        if (batch_idx + 1) % log_interval == 0:
-            # 计算平均指标
-            avg_metrics = {k: v/log_interval for k, v in running_metrics.items()}
-            
-            # 更新进度条
-            pbar.set_postfix({
-                'loss': f'{avg_metrics["loss"]:.4f}',
-                'inv': f'{avg_metrics["inv-loss"]:.4f}',
-                'var': f'{avg_metrics["var-loss"]:.4f}',
-                'cov': f'{avg_metrics["cov-loss"]:.4f}'
-            })
-            
-            # 重置运行指标
-            running_metrics = {k: 0 for k in running_metrics}
+        # 每个batch都更新进度条
+        pbar.set_postfix({
+            'loss': f'{batch_metrics["loss"]:.4f}',
+            'inv': f'{batch_metrics["inv-loss"]:.4f}',
+            'var': f'{batch_metrics["var-loss"]:.4f}',
+            'cov': f'{batch_metrics["cov-loss"]:.4f}',
+            'mse': f'{batch_metrics["mse-loss"]:.4f}'
+        })
         
         # 更新总损失
         total_loss += batch_total_loss.item()
@@ -102,21 +119,24 @@ def main():
                        help='Data directory')
     parser.add_argument('--resume', action='store_true',
                        help='Resume training from checkpoint')
-    parser.add_argument('--epochs', type=int, default=20,
+    parser.add_argument('--epochs', type=int, default=5,
                        help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=32,
+    parser.add_argument('--batch_size', type=int, default=512,
                        help='Batch size')
-    parser.add_argument('--lr', type=float, default=1e-4,
+    parser.add_argument('--lr', type=float, default=0.002,
                        help='Learning rate')
+    parser.add_argument('--min_lr', type=float, default=1e-4,
+                       help='Minimum learning rate')
     args = parser.parse_args()
 
-    # 配置
+    # Configuration
     config = {
-        'hidden_dim': 256,
+        'hidden_dim': 128,
         'action_dim': 2,
         'batch_size': args.batch_size,
         'num_epochs': args.epochs,
         'learning_rate': args.lr,
+        'min_learning_rate': args.min_lr,
         'loss_type': 'vicreg',
         'save_freq': 5,
         'max_checkpoints': 5,
@@ -130,28 +150,28 @@ def main():
     else:
         save_config(config, args.exp_dir)
 
-    # 设置设备
+    # Setup device
     device = setup_device()
     print(f"Using device: {device}")
     
-    # 加载数据
-    print("正在加载数据...")
+    # Load data
+    print("Loading data...")
     states, actions = load_data(args.data_dir)
     
-    # 数据增强
+    # Data augmentation
     transform = TrajectoryTransform() if config['use_data_augmentation'] else None
     
-    # 创建数据集
+    # Create dataset
     dataset = TrajectoryDataset(states, actions, transform=transform)
     
-    # 根据操作系统设置 DataLoader 参数
+    # Set DataLoader parameters based on OS
     if platform.system() == 'Windows':
         dataloader = DataLoader(
             dataset,
             batch_size=config['batch_size'],
             shuffle=True,
-            num_workers=0,  # Windows下设置为0
-            pin_memory=False  # Windows下关闭pin_memory
+            num_workers=0,  # Set to 0 for Windows
+            pin_memory=False  # Disable pin_memory for Windows
         )
     else:
         dataloader = DataLoader(
@@ -162,9 +182,9 @@ def main():
             pin_memory=True
         )
     
-    print(f"数据集大小: {len(dataset)} 轨迹")
+    print(f"Dataset size: {len(dataset)} trajectories")
     
-    # 初始化模型、损失函数和优化器
+    # Initialize model, loss function and optimizer
     model = JEPA(config['hidden_dim'], config['action_dim']).to(device)
     criterion = VICRegLoss(
         inv_coeff=25.0,
@@ -172,15 +192,31 @@ def main():
         cov_coeff=1.0,
         gamma=1.0
     ).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])
-
-    # 初始化checkpoint管理器
+    
+    # 添加MSE损失函数
+    mse_criterion = nn.MSELoss().to(device)
+    
+    # Use AdamW optimizer
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=config['learning_rate'],
+        weight_decay=0.01
+    )
+    
+    # Add learning rate scheduler
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=config['num_epochs'],
+        eta_min=config['min_learning_rate']
+    )
+    
+    # Initialize checkpoint manager
     ckpt_manager = CheckpointManager(
         args.exp_dir,
         max_to_keep=config['max_checkpoints']
     )
 
-    # 恢复训练
+    # Resume training
     start_epoch = 0
     best_loss = float('inf')
     model_weights_path = os.path.join(args.exp_dir, 'model_weights.pth')
@@ -189,25 +225,30 @@ def main():
         if checkpoint is not None:
             start_epoch = epoch + 1
             best_loss = loss
-            print(f"恢复训练从epoch {start_epoch}，之前最佳loss: {best_loss:.4f}")
+            print(f"Resuming training from epoch {start_epoch}, previous best loss: {best_loss:.4f}")
     
-    # 训练循环
-    print("开始训练...")
+    # Training loop
+    print("Starting training...")
     try:
         for epoch in range(start_epoch, config['num_epochs']):
-            train_loss = train_epoch(model, dataloader, criterion, optimizer, device, epoch)
+            train_loss = train_epoch(model, dataloader, criterion, mse_criterion, optimizer, device, epoch)
             
-            # 每个epoch结束时输出总结
+            # Update learning rate
+            scheduler.step()
+            current_lr = optimizer.param_groups[0]['lr']
+            print(f"Current learning rate: {current_lr:.2e}")
+            
+            # Print summary at the end of each epoch
             print(f"\nEpoch {epoch + 1}/{config['num_epochs']}")
             print(f"Average Loss: {train_loss:.4f}")
             
-            # 保存最佳模型
+            # Save best model
             if train_loss < best_loss:
                 best_loss = train_loss
-                save_model(model, os.path.join(args.exp_dir, 'model_weights.pth'))
+                save_model(model, args.exp_dir)
                 print(f"New best model saved! Loss: {best_loss:.4f}")
             
-            # 保存检查点
+            # Save checkpoint
             if (epoch + 1) % config['save_freq'] == 0:
                 save_checkpoint({
                     'epoch': epoch + 1,
@@ -219,17 +260,17 @@ def main():
                 }, args.exp_dir)
 
     except KeyboardInterrupt:
-        print("\n训练被中断...")
-        # 如果中断时的模型比最佳模型更好，则保存它
+        print("\nTraining interrupted...")
+        # Save the model if it's better than the best model
         if train_loss < best_loss:
-            torch.save(model.state_dict(), model_weights_path)
-            print(f"中断时的模型性能更好，已保存到: {model_weights_path}")
+            save_model(model, args.exp_dir)
+            print(f"Model at interruption is better, saved to: {model_weights_path}")
     
     finally:
-        # 训练结束后打印最佳结果
-        print("\n训练完成!")
-        print(f"最佳 Loss: {best_loss:.4f}")
-        print(f"最佳模型保存在: {model_weights_path}")
+        # Print final results
+        print("\nTraining completed!")
+        print(f"Best Loss: {best_loss:.4f}")
+        print(f"Best model saved at: {model_weights_path}")
 
 if __name__ == "__main__":
     main() 

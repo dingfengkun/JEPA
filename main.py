@@ -46,21 +46,16 @@ def load_data(device):
     return probe_train_ds, probe_val_ds
 
 
-def load_model():
-    """加载训练好的模型"""
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+def load_model(device):
+    """从当前目录加载模型"""
+    model_path = 'model_weights.pth'
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found at {model_path}")
     
-    # 使用正确的隐藏维度初始化模型
-    model = JEPA(hidden_dim=256, action_dim=2)  # 改为 256
-    model = model.to(device)
-    
-    try:
-        state_dict = torch.load('experiments/exp1/model_weights.pth', map_location=device)
-        model.load_state_dict(state_dict)
-        model.eval()
-    except Exception as e:
-        raise Exception(f"加载模型时出错: {str(e)}")
-    
+    model = JEPA(hidden_dim=128, action_dim=2).to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+    print(f"Model loaded from {model_path}")
     return model
 
 
