@@ -30,19 +30,19 @@ class Encoder(nn.Module):
         self.name = name
         
         # 输入是单通道图像 (1, 64, 64)
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(16)
+        self.conv1 = nn.Conv2d(1, 8, kernel_size=3, stride=2, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(8)
         
         # ResNet块
-        self.layer1 = self._make_layer(16, 32, 1, stride=2)
-        self.layer2 = self._make_layer(32, 64, 1, stride=2)
-        self.layer3 = self._make_layer(64, 128, 1, stride=2)
+        self.layer1 = self._make_layer(8, 16, 1, stride=2)
+        self.layer2 = self._make_layer(16, 32, 1, stride=2)
+        self.layer3 = self._make_layer(32, 64, 1, stride=2)
         
         # 全局平均池化
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         
         # 全连接层
-        self.fc = nn.Linear(128, hidden_dim)
+        self.fc = nn.Linear(64, hidden_dim)
         self.ln = nn.LayerNorm(hidden_dim)
         
     def _make_layer(self, in_channels, out_channels, num_blocks, stride):
@@ -66,37 +66,32 @@ class Encoder(nn.Module):
         return x
 
 class Predictor(nn.Module):
-    def __init__(self, hidden_dim=256, action_dim=2):
+    def __init__(self, hidden_dim=128, action_dim=2):
         super().__init__()
         self.hidden_dim = hidden_dim
         
         # 动作投影层
         self.action_proj = nn.Sequential(
-            nn.Linear(action_dim, hidden_dim),
+            nn.Linear(action_dim, hidden_dim // 2),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim // 2, hidden_dim),
             nn.LayerNorm(hidden_dim)
         )
         
         # 状态-动作融合网络
         self.net = nn.Sequential(
             # 第一层：扩大维度
-            nn.Linear(hidden_dim * 2, hidden_dim * 4),
-            nn.ReLU(),
-            nn.LayerNorm(hidden_dim * 4),
-            
-            # 第二层：处理融合特征
-            nn.Linear(hidden_dim * 4, hidden_dim * 4),
-            nn.ReLU(),
-            nn.LayerNorm(hidden_dim * 4),
-            
-            # 第三层：降维
-            nn.Linear(hidden_dim * 4, hidden_dim * 2),
+            nn.Linear(hidden_dim * 2, hidden_dim * 2),
             nn.ReLU(),
             nn.LayerNorm(hidden_dim * 2),
             
-            # 第四层：输出层
+            # 第二层：处理融合特征
             nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.ReLU(),
+            nn.LayerNorm(hidden_dim),
+            
+            # 输出层
+            nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim)
         )
         

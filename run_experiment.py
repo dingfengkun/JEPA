@@ -50,8 +50,8 @@ def main():
             pass
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=1, help='训练轮数')
-    parser.add_argument('--batch_size', type=int, default=512, help='批量大小')
+    parser.add_argument('--epochs', type=int, default=5, help='训练轮数')
+    parser.add_argument('--batch_size', type=int, default=256, help='批量大小')
     parser.add_argument('--lr', type=float, default=0.002, help='学习率')
     parser.add_argument('--exp_name', type=str, default='', help='实验名称')
     args = parser.parse_args()
