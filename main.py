@@ -15,8 +15,8 @@ def get_device():
 
 
 def load_data(device):
-    data_path = "/scratch/DL25SP"
-
+    # data_path = "/scratch/DL25SP"
+    data_path = "./scratch/DL25SP"
     probe_train_ds = create_wall_dataloader(
         data_path=f"{data_path}/probe_normal/train",
         probing=True,
@@ -114,6 +114,3 @@ if __name__ == "__main__":
 
     probe_train_ds, probe_val_ds = load_data(device)
     evaluate_model(device, model, probe_train_ds, probe_val_ds)
-
-    probe_train_expert_ds, probe_val_expert_ds = load_expert_data(device)
-    evaluate_model(device, model, probe_train_expert_ds, probe_val_expert_ds)
