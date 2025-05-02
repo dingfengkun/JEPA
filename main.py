@@ -114,3 +114,6 @@ if __name__ == "__main__":
 
     probe_train_ds, probe_val_ds = load_data(device)
     evaluate_model(device, model, probe_train_ds, probe_val_ds)
+
+    probe_train_expert_ds, probe_val_expert_ds = load_expert_data(device)
+    evaluate_model(device, model, probe_train_expert_ds, probe_val_expert_ds)
