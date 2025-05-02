@@ -14,7 +14,7 @@ def load_data(data_dir):
         states: shape (num_trajectories, trajectory_length, 2, 64, 64)
         actions: shape (num_trajectories, trajectory_length-1, 2)
     """
-    states = np.load(f"{data_dir}/states.npy")
+    states = np.load(f"{data_dir}/states.npy", mmap_mode="r")
     actions = np.load(f"{data_dir}/actions.npy")
     
     print(f"加载数据 - States shape: {states.shape}, Actions shape: {actions.shape}")
