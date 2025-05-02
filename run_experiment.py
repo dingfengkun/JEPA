@@ -74,7 +74,7 @@ def main():
         log_file.write("=== Starting Training ===\n")
         train_command = (
             f"python train_jepa.py "
-            f"--data_dir ./scratch/DL25SP/train "
+            f"--data_dir "/scratch/DL25SP/train "
             f"--exp_dir {exp_dir} "
             f"--epochs {args.epochs} "
             f"--batch_size {args.batch_size} "
