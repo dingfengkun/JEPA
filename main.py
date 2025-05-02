@@ -15,8 +15,8 @@ def get_device():
 
 
 def load_data(device):
-    # data_path = "/scratch/DL25SP"
-    data_path = "./scratch/DL25SP"
+    data_path = "/scratch/DL25SP"
+
     probe_train_ds = create_wall_dataloader(
         data_path=f"{data_path}/probe_normal/train",
         probing=True,
@@ -38,15 +38,45 @@ def load_data(device):
         train=False,
     )
 
+    probe_val_wall_other_ds = create_wall_dataloader(
+        data_path=f"{data_path}/probe_wall_other/val",
+        probing=True,
+        device=device,
+        train=False,
+    )
+
     probe_val_ds = {
         "normal": probe_val_normal_ds,
         "wall": probe_val_wall_ds,
+        "wall_other": probe_val_wall_other_ds,
     }
 
     return probe_train_ds, probe_val_ds
 
 
-def load_model(device):
+def load_expert_data(device):
+    data_path = "/scratch/DL25SP"
+
+    probe_train_expert_ds = create_wall_dataloader(
+        data_path=f"{data_path}/probe_expert/train",
+        probing=True,
+        device=device,
+        train=True,
+    )
+
+    probe_val_expert_ds = {
+        "expert": create_wall_dataloader(
+            data_path=f"{data_path}/probe_expert/val",
+            probing=True,
+            device=device,
+            train=False,
+        )
+    }
+
+    return probe_train_expert_ds, probe_val_expert_ds
+
+
+def load_model():
     """从当前目录加载模型"""
     model_path = 'model_weights.pth'
     if not os.path.exists(model_path):
@@ -57,7 +87,6 @@ def load_model(device):
     model.eval()
     print(f"Model loaded from {model_path}")
     return model
-
 
 def evaluate_model(device, model, probe_train_ds, probe_val_ds):
     evaluator = ProbingEvaluator(
@@ -78,10 +107,13 @@ def evaluate_model(device, model, probe_train_ds, probe_val_ds):
 
 if __name__ == "__main__":
     device = get_device()
-    model = load_model(device)
+    model = load_model()
     
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total Trainable Parameters: {total_params:,}")
 
     probe_train_ds, probe_val_ds = load_data(device)
     evaluate_model(device, model, probe_train_ds, probe_val_ds)
+
+    probe_train_expert_ds, probe_val_expert_ds = load_expert_data(device)
+    evaluate_model(device, model, probe_train_expert_ds, probe_val_expert_ds)
